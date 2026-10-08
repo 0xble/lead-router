@@ -26,6 +26,10 @@ const { legacyRoutingEnabled }   = require('./src/legacyRouting');
 const { syncMetaAdsToAirtable }  = require('./src/jobs/metaSync');
 const { syncMetaSpendToAirtable } = require('./src/jobs/metaSpendSync');
 const { syncWeeklyMetrics }       = require('./src/jobs/metricsSync');
+const { createInFlightTracker, createGracefulShutdown } = require('./src/gracefulShutdown');
+const { createZoomRouter }        = require('./src/routes/zoom');
+
+const transcriptTracker = createInFlightTracker();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -35,7 +39,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // /advisors is admin-only and stays locked down by the X-Admin-Key header.
 app.use('/route-lead',    cors(), require('./src/routes/leads'));
 app.use('/advisors',     require('./src/routes/advisors'));
-app.use('/zoom-webhook', require('./src/routes/zoom'));
+app.use('/zoom-webhook', createZoomRouter({ transcriptTracker }));
 app.use('/fallback-use', require('./src/routes/fallbackMarker').createFallbackMarkerRouter());
 
 // ── Admin UI — clean URL ───────────────────────────────────────────────────
@@ -90,12 +94,22 @@ app.get('/health', (req, res) => res.json({
   status: 'ok',
   legacyRoutingEnabled: legacyRoutingEnabled(),
   renderGitCommit: process.env.RENDER_GIT_COMMIT || null,
+  inFlightTranscriptWork: transcriptTracker.getCount(),
 }));
 
 // ── Start ─────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Lead router  →  http://localhost:${PORT}`);
   console.log(`Admin UI     →  http://localhost:${PORT}/admin`);
   console.log(`GHL embed    →  http://localhost:${PORT}/ghl-embed.js`);
 });
+
+const shutdown = createGracefulShutdown({
+  server,
+  tracker: transcriptTracker,
+  // Render sends SIGTERM and allows 30 seconds before killing the process.
+  timeoutMs: 25_000,
+});
+process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.once('SIGINT', () => { void shutdown('SIGINT'); });

@@ -63,7 +63,10 @@ async function updateAirtableRecord(recordId, fields, needsManualReview = false,
 }
 
 // ── Webhook endpoint ──────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+function createZoomRouter({ transcriptTracker } = {}) {
+  const webhookRouter = express.Router();
+
+  webhookRouter.post('/', async (req, res) => {
   const event = req.body;
 
   // Zoom sends a validation request when you first set up the webhook
@@ -78,8 +81,13 @@ router.post('/', async (req, res) => {
     return res.json({ status: 'ignored' });
   }
 
-  // Acknowledge immediately so Zoom doesn't retry
-  res.json({ status: 'received' });
+    const releaseTranscript = transcriptTracker?.accept();
+    if (transcriptTracker && !releaseTranscript) {
+      return res.status(503).json({ status: 'shutting_down' });
+    }
+
+    // Acknowledge immediately so Zoom doesn't retry
+    res.json({ status: 'received' });
 
   try {
     const obj            = event.payload.object;
@@ -114,7 +122,13 @@ router.post('/', async (req, res) => {
     console.log(`[zoom] Airtable record ${record.id} updated successfully`);
   } catch (err) {
     console.error('[zoom] Error processing webhook:', err.message);
+  } finally {
+    releaseTranscript?.();
   }
-});
+  });
 
-module.exports = router;
+  return webhookRouter;
+}
+
+module.exports = createZoomRouter();
+module.exports.createZoomRouter = createZoomRouter;

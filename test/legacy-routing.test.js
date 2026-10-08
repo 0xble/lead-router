@@ -74,7 +74,7 @@ test('disabled advisor mutations retain admin authentication and make zero provi
 test('health identifies disabled routing and the adopted Render release', async t => {
   const app = await start(t, '0');
   assert.deepEqual(await app.request('/health', {}, 'GET', false), {
-    status: 200, body: { status: 'ok', legacyRoutingEnabled: false, renderGitCommit: 'synthetic-release' },
+    status: 200, body: { status: 'ok', legacyRoutingEnabled: false, renderGitCommit: 'synthetic-release', inFlightTranscriptWork: 0 },
   });
   assert.deepEqual(await app.calls(), []);
 });
